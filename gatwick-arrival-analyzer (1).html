@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arrival Efficiency Analyzer · Gatwick</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0c0c0c; --surface: #141414; --surface2: #1a1a1a; --surface3: #202020;
+    --border: #252525; --border2: #303030;
+    --text: #e8e8e8; --text2: #888; --text3: #444;
+    --accent: #e8c547; --accent-dim: #3a2e00; --accent-bg: #1a1500;
+    --red: #e05555; --red-dim: #3a1010;
+    --green: #4caf7d; --green-dim: #0d2a1a;
+    --sans: 'Inter', sans-serif; --mono: 'JetBrains Mono', monospace;
+  }
+  html, body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; font-size: 14px; }
+  body { opacity: 0; animation: fadeIn 0.5s ease forwards 0.05s; }
+  @keyframes fadeIn { to { opacity: 1; } }
+  @keyframes slideUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+
+  .header {
+    border-bottom: 1px solid var(--border); padding: 14px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100; background: var(--bg);
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .header-icon {
+    width: 32px; height: 32px; border: 1px solid var(--border2);
+    border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    font-size: 15px; background: var(--surface);
+  }
+  .header-title { font-size: 13px; font-weight: 600; letter-spacing: 0.05em; color: var(--text); }
+  .header-sub { font-size: 11px; color: var(--text3); margin-top: 1px; font-family: var(--mono); }
+  .live-dot { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--green); font-family: var(--mono); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+  .main { max-width: 1080px; margin: 0 auto; padding: 24px 20px; }
+
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 24px; }
+  .summary-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px;
+    animation: slideUp 0.4s ease both;
+  }
+  .summary-card:nth-child(1){animation-delay:.05s} .summary-card:nth-child(2){animation-delay:.1s}
+  .summary-card:nth-child(3){animation-delay:.15s} .summary-card:nth-child(4){animation-delay:.2s}
+  .s-label { font-size: 10px; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; font-family: var(--mono); }
+  .s-val { font-size: 28px; font-weight: 600; line-height: 1; }
+  .s-sub { font-size: 11px; color: var(--text2); margin-top: 6px; }
+
+  .grid { display: grid; grid-template-columns: 210px 1fr; gap: 16px; animation: slideUp 0.4s ease both 0.22s; }
+
+  .flight-list { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .list-header { padding: 10px 14px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text3); border-bottom: 1px solid var(--border); font-family: var(--mono); }
+  .flight-item {
+    padding: 12px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
+    border-left: 2px solid transparent; transition: all 0.12s;
+  }
+  .flight-item:last-child { border-bottom: none; }
+  .flight-item:hover { background: var(--surface2); }
+  .flight-item.active { background: var(--surface2); border-left-color: var(--accent); }
+  .fi-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+  .fi-id { font-size: 12px; font-weight: 600; color: var(--text2); font-family: var(--mono); }
+  .fi-id.active-text { color: var(--text); }
+  .fi-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); opacity: 0; }
+  .fi-route { font-size: 11px; color: var(--text3); }
+  .fi-airline { font-size: 10px; color: var(--text3); margin-top: 2px; }
+
+  .flight-detail { display: flex; flex-direction: column; gap: 12px; }
+  .flight-panel { display: none; flex-direction: column; gap: 12px; }
+  .flight-panel.active { display: flex; }
+
+  .detail-header {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 18px 22px; display: flex; justify-content: space-between; align-items: flex-start;
+  }
+  .d-id { font-size: 20px; font-weight: 600; color: var(--text); margin-bottom: 4px; font-family: var(--mono); }
+  .d-badge {
+    display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 3px;
+    font-family: var(--mono); margin-left: 10px; vertical-align: middle;
+  }
+  .d-meta { font-size: 11px; color: var(--text2); }
+  .stat-group { display: flex; gap: 24px; text-align: right; flex-shrink: 0; }
+  .stat-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; font-family: var(--mono); }
+  .stat-value { font-size: 18px; font-weight: 600; }
+
+  .chart-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px 12px; }
+  .chart-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .chart-label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text3); font-family: var(--mono); }
+  .chart-legend { display: flex; gap: 14px; font-size: 11px; color: var(--text2); align-items: center; }
+  .leg-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .leg-line { width: 14px; height: 2px; display: inline-block; margin-right: 4px; vertical-align: middle; }
+
+  .analysis-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; }
+  .a-title { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text3); margin-bottom: 8px; font-family: var(--mono); }
+  .a-body { font-size: 13px; color: var(--text2); line-height: 1.7; }
+  .a-body strong { color: var(--text); font-weight: 500; }
+
+  .table-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .t-header {
+    padding: 10px 18px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text3); border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; font-family: var(--mono);
+  }
+  .t-scroll { max-height: 180px; overflow-y: auto; }
+  .t-scroll::-webkit-scrollbar { width: 3px; }
+  .t-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  .r-row {
+    display: grid; grid-template-columns: 52px 1fr 100px 110px;
+    padding: 6px 18px; border-bottom: 1px solid #111;
+    font-size: 11px; align-items: center; transition: background 0.1s; font-family: var(--mono);
+  }
+  .r-row:hover { background: var(--surface2); }
+  .r-row.lo { background: #130d00; }
+  .r-row.lo:hover { background: #1a1100; }
+  .r-num { color: var(--text3); }
+  .r-bar-wrap { padding-right: 16px; }
+  .r-bar { height: 2px; border-radius: 1px; background: var(--accent); opacity: 0.6; }
+  .r-alt { color: var(--text); }
+  .r-flag { font-size: 10px; color: var(--accent); }
+  .r-ok { font-size: 10px; color: var(--text3); }
+
+  .tooltip-box {
+    position: fixed; background: var(--surface2); border: 1px solid var(--border2);
+    border-radius: 6px; padding: 8px 12px; font-size: 11px;
+    pointer-events: none; opacity: 0; transition: opacity 0.1s; z-index: 999; font-family: var(--mono);
+  }
+  .tt-time { color: var(--text3); margin-bottom: 2px; }
+  .tt-alt { color: var(--text); font-weight: 500; font-size: 13px; }
+  .tt-flag { color: var(--accent); margin-top: 2px; }
+
+  .footer { text-align: center; font-size: 11px; color: var(--text3); padding: 24px 0 32px; font-family: var(--mono); }
+
+  @media (max-width: 720px) {
+    .summary-grid { grid-template-columns: repeat(2,1fr); }
+    .grid { grid-template-columns: 1fr; }
+    .flight-list { display: flex; overflow-x: auto; }
+    .flight-item { min-width: 140px; border-left: none; border-bottom: 2px solid transparent; }
+    .flight-item.active { border-bottom-color: var(--accent); border-left: none; }
+    .detail-header { flex-direction: column; gap: 14px; }
+    .stat-group { text-align: left; }
+  }
+</style>
+</head>
+<body>
+
+<div class="tooltip-box" id="tooltip">
+  <div class="tt-time" id="tt-time"></div>
+  <div class="tt-alt" id="tt-alt"></div>
+  <div class="tt-flag" id="tt-flag"></div>
+</div>
+
+<header class="header">
+  <div class="header-left">
+    <div class="header-icon">✈</div>
+    <div>
+      <div class="header-title">Arrival Efficiency Analyzer</div>
+      <div class="header-sub">LONDON GATWICK · LGW · EGKK</div>
+    </div>
+  </div>
+  <div class="live-dot"><span class="dot"></span>Real ADS-B data</div>
+</header>
+
+<main class="main">
+
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="s-label">Flights analyzed</div>
+      <div class="s-val" style="color:var(--text)">5</div>
+      <div class="s-sub">London Gatwick</div>
+    </div>
+    <div class="summary-card">
+      <div class="s-label">Efficient CDO</div>
+      <div class="s-val" style="color:var(--green)">0</div>
+      <div class="s-sub">no clean profiles</div>
+    </div>
+    <div class="summary-card">
+      <div class="s-label">Stepped descent</div>
+      <div class="s-val" style="color:var(--accent)">5</div>
+      <div class="s-sub">all inefficient</div>
+    </div>
+    <div class="summary-card">
+      <div class="s-label">Total level-offs</div>
+      <div class="s-val" style="color:var(--accent)" id="totalLO">—</div>
+      <div class="s-sub">across all flights</div>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <div class="flight-list">
+      <div class="list-header">Arrivals · LGW</div>
+      <div class="flight-item active" onclick="switchFlight('vlg')" id="tab-vlg">
+        <div class="fi-top"><span class="fi-id active-text">VLG8944</span><span class="fi-dot" style="opacity:1"></span></div>
+        <div class="fi-route">BCN → LGW</div>
+        <div class="fi-airline">Vueling · A320</div>
+      </div>
+      <div class="flight-item" onclick="switchFlight('tap')" id="tab-tap">
+        <div class="fi-top"><span class="fi-id">TAP1330</span><span class="fi-dot"></span></div>
+        <div class="fi-route">LIS → LGW</div>
+        <div class="fi-airline">TAP Air Portugal</div>
+      </div>
+      <div class="flight-item" onclick="switchFlight('ezy')" id="tab-ezy">
+        <div class="fi-top"><span class="fi-id">EZY28PH</span><span class="fi-dot"></span></div>
+        <div class="fi-route">LIN → LGW</div>
+        <div class="fi-airline">easyJet · A319</div>
+      </div>
+      <div class="flight-item" onclick="switchFlight('ezy2')" id="tab-ezy2">
+        <div class="fi-top"><span class="fi-id">EZY58EL</span><span class="fi-dot"></span></div>
+        <div class="fi-route">CHQ → LGW</div>
+        <div class="fi-airline">easyJet · A320</div>
+      </div>
+      <div class="flight-item" onclick="switchFlight('tom')" id="tab-tom">
+        <div class="fi-top"><span class="fi-id">TOM7EL</span><span class="fi-dot"></span></div>
+        <div class="fi-route">IBZ → LGW</div>
+        <div class="fi-airline">TUI Airways · B737</div>
+      </div>
+    </div>
+
+    <div class="flight-detail">
+
+      <!-- VLG8944 -->
+      <div class="flight-panel active" id="panel-vlg">
+        <div class="detail-header">
+          <div>
+            <div class="d-id">VLG8944 <span class="d-badge" style="background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-dim)">stepped descent</span></div>
+            <div class="d-meta">Vueling · Airbus A320 · Barcelona (BCN) → London Gatwick (LGW)</div>
+          </div>
+          <div class="stat-group">
+            <div><div class="stat-label">Holding</div><div class="stat-value" style="color:var(--green)">0 min</div></div>
+            <div><div class="stat-label">Level-offs</div><div class="stat-value" style="color:var(--accent)" id="lo-vlg">—</div></div>
+            <div><div class="stat-label">Alt drop</div><div class="stat-value" style="color:var(--text2)">2,096m</div></div>
+          </div>
+        </div>
+        <div class="chart-panel">
+          <div class="chart-top">
+            <div class="chart-label">Altitude profile · every 10s</div>
+            <div class="chart-legend">
+              <span><span class="leg-line" style="background:var(--accent)"></span>altitude</span>
+              <span><span class="leg-dot" style="background:var(--red)"></span>level-off</span>
+            </div>
+          </div>
+          <div style="position:relative;height:230px;"><canvas id="vlgChart"></canvas></div>
+        </div>
+        <div class="analysis-panel">
+          <div class="a-title">Analysis</div>
+          <div class="a-body">VLG8944 demonstrated a <strong>stepped descent profile</strong> on approach to Gatwick — levelling off repeatedly instead of a smooth Continuous Descent Operation (CDO). Each flat section increases fuel burn as engines maintain thrust rather than idling during a glide.</div>
+        </div>
+        <div class="table-panel">
+          <div class="t-header"><span>Raw readings · VLG8944</span><span style="color:var(--accent)">△ = level-off</span></div>
+          <div class="t-scroll" id="table-vlg"></div>
+        </div>
+      </div>
+
+      <!-- TAP1330 -->
+      <div class="flight-panel" id="panel-tap">
+        <div class="detail-header">
+          <div>
+            <div class="d-id">TAP1330 <span class="d-badge" style="background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-dim)">stepped descent</span></div>
+            <div class="d-meta">TAP Air Portugal · Lisbon (LIS) → London Gatwick (LGW)</div>
+          </div>
+          <div class="stat-group">
+            <div><div class="stat-label">Holding</div><div class="stat-value" style="color:var(--green)">0 min</div></div>
+            <div><div class="stat-label">Level-offs</div><div class="stat-value" style="color:var(--accent)" id="lo-tap">—</div></div>
+            <div><div class="stat-label">Alt drop</div><div class="stat-value" style="color:var(--text2)">1,783m</div></div>
+          </div>
+        </div>
+        <div class="chart-panel">
+          <div class="chart-top">
+            <div class="chart-label">Altitude profile · every 10s</div>
+            <div class="chart-legend">
+              <span><span class="leg-line" style="background:var(--accent)"></span>altitude</span>
+              <span><span class="leg-dot" style="background:var(--red)"></span>level-off</span>
+            </div>
+          </div>
+          <div style="position:relative;height:230px;"><canvas id="tapChart"></canvas></div>
+        </div>
+        <div class="analysis-panel">
+          <div class="a-title">Analysis</div>
+          <div class="a-body">TAP1330 showed a <strong>stepped descent from Lisbon</strong>. Fewer level-offs than VLG8944, suggesting more favourable ATC sequencing — but still deviating from the ideal CDO profile expected at a well-managed airport.</div>
+        </div>
+        <div class="table-panel">
+          <div class="t-header"><span>Raw readings · TAP1330</span><span style="color:var(--accent)">△ = level-off</span></div>
+          <div class="t-scroll" id="table-tap"></div>
+        </div>
+      </div>
+
+      <!-- EZY28PH -->
+      <div class="flight-panel" id="panel-ezy">
+        <div class="detail-header">
+          <div>
+            <div class="d-id">EZY28PH <span class="d-badge" style="background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-dim)">stepped descent</span></div>
+            <div class="d-meta">easyJet · Milan Linate (LIN) → London Gatwick (LGW) · Landed 20:14</div>
+          </div>
+          <div class="stat-group">
+            <div><div class="stat-label">Holding</div><div class="stat-value" style="color:var(--green)">0 min</div></div>
+            <div><div class="stat-label">Level-offs</div><div class="stat-value" style="color:var(--accent)" id="lo-ezy">—</div></div>
+            <div><div class="stat-label">Alt drop</div><div class="stat-value" style="color:var(--text2)">1,143m</div></div>
+          </div>
+        </div>
+        <div class="chart-panel">
+          <div class="chart-top">
+            <div class="chart-label">Altitude profile · every 10s</div>
+            <div class="chart-legend">
+              <span><span class="leg-line" style="background:var(--accent)"></span>altitude</span>
+              <span><span class="leg-dot" style="background:var(--red)"></span>level-off</span>
+            </div>
+          </div>
+          <div style="position:relative;height:230px;"><canvas id="ezyChart"></canvas></div>
+        </div>
+        <div class="analysis-panel">
+          <div class="a-title">Analysis</div>
+          <div class="a-body">EZY28PH from Milan showed a <strong>relatively smoother profile</strong> compared to other captured flights — fewer sharp plateaus — but still recorded level-offs throughout its approach. The A319 landed at 20:14, slightly ahead of schedule.</div>
+        </div>
+        <div class="table-panel">
+          <div class="t-header"><span>Raw readings · EZY28PH</span><span style="color:var(--accent)">△ = level-off</span></div>
+          <div class="t-scroll" id="table-ezy"></div>
+        </div>
+      </div>
+
+      <!-- EZY58EL -->
+      <div class="flight-panel" id="panel-ezy2">
+        <div class="detail-header">
+          <div>
+            <div class="d-id">EZY58EL <span class="d-badge" style="background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-dim)">stepped descent</span></div>
+            <div class="d-meta">easyJet · Chania (CHQ) → London Gatwick (LGW) · Landed ~19:54</div>
+          </div>
+          <div class="stat-group">
+            <div><div class="stat-label">Holding</div><div class="stat-value" style="color:var(--green)">0 min</div></div>
+            <div><div class="stat-label">Level-offs</div><div class="stat-value" style="color:var(--accent)" id="lo-ezy2">—</div></div>
+            <div><div class="stat-label">Alt drop</div><div class="stat-value" style="color:var(--text2)">1,021m</div></div>
+          </div>
+        </div>
+        <div class="chart-panel">
+          <div class="chart-top">
+            <div class="chart-label">Altitude profile · every 10s</div>
+            <div class="chart-legend">
+              <span><span class="leg-line" style="background:var(--accent)"></span>altitude</span>
+              <span><span class="leg-dot" style="background:var(--red)"></span>level-off</span>
+            </div>
+          </div>
+          <div style="position:relative;height:230px;"><canvas id="ezy2Chart"></canvas></div>
+        </div>
+        <div class="analysis-panel">
+          <div class="a-title">Analysis</div>
+          <div class="a-body">EZY58EL from Chania produced one of the <strong>smoother descent profiles</strong> in this dataset — a near-continuous slope with relatively few level-offs. While still technically inefficient, this flight came closest to a CDO profile, suggesting better ATC sequencing or a less congested arrival window.</div>
+        </div>
+        <div class="table-panel">
+          <div class="t-header"><span>Raw readings · EZY58EL</span><span style="color:var(--accent)">△ = level-off</span></div>
+          <div class="t-scroll" id="table-ezy2"></div>
+        </div>
+      </div>
+
+      <!-- TOM7EL -->
+      <div class="flight-panel" id="panel-tom">
+        <div class="detail-header">
+          <div>
+            <div class="d-id">TOM7EL <span class="d-badge" style="background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-dim)">stepped descent</span></div>
+            <div class="d-meta">TUI Airways · Boeing 737 · Ibiza (IBZ) → London Gatwick (LGW) · Landed ~20:08</div>
+          </div>
+          <div class="stat-group">
+            <div><div class="stat-label">Holding</div><div class="stat-value" style="color:var(--green)">0 min</div></div>
+            <div><div class="stat-label">Level-offs</div><div class="stat-value" style="color:var(--accent)" id="lo-tom">—</div></div>
+            <div><div class="stat-label">Alt drop</div><div class="stat-value" style="color:var(--text2)">1,219m</div></div>
+          </div>
+        </div>
+        <div class="chart-panel">
+          <div class="chart-top">
+            <div class="chart-label">Altitude profile · every 10s</div>
+            <div class="chart-legend">
+              <span><span class="leg-line" style="background:var(--accent)"></span>altitude</span>
+              <span><span class="leg-dot" style="background:var(--red)"></span>level-off</span>
+            </div>
+          </div>
+          <div style="position:relative;height:230px;"><canvas id="tomChart"></canvas></div>
+        </div>
+        <div class="analysis-panel">
+          <div class="a-title">Analysis</div>
+          <div class="a-body">TOM7EL from Ibiza showed a <strong>classic stepped descent pattern</strong> — gradual drops interrupted by level-off phases throughout the approach. The TUI Boeing 737 arrived slightly ahead of its scheduled 20:00 landing, but the descent profile shows clear ATC-imposed altitude restrictions typical of Gatwick's busy single-runway operations.</div>
+        </div>
+        <div class="table-panel">
+          <div class="t-header"><span>Raw readings · TOM7EL</span><span style="color:var(--accent)">△ = level-off</span></div>
+          <div class="t-scroll" id="table-tom"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="footer">
+    Data captured via OpenSky Network API · ADS-B transponder signals · Python · London Gatwick · Jun 2026
+  </div>
+
+</main>
+
+<script>
+const FLIGHTS = {
+  vlg:  { readings: [2400,2362,2240,2103,2034,1981,1897,1920,1790,1729,1684,1638,1470,1432,1356,1341,1325,1310,1287,1280,1272,1257,1173,1150,1104,1104,1059,1028,1013,982,967,944,922,883,853,822,792,754,655,617,571,533,525,457,411,381,342,304] },
+  tap:  { readings: [1866,1866,1821,1691,1661,1607,1554,1501,1432,1402,1371,1325,1272,1234,1203,1150,1104,1028,967,906,845,830,800,739,556,502,464,426,388,335,304,274,213,175,137,99,83] },
+  ezy:  { readings: [1173,1127,1089,1089,1013,975,952,845,853,746,701,655,617,563,510,441,411,373,327,335,236,198,182,121,106,121,30] },
+  ezy2: { readings: [1120,1043,967,967,883,800,777,716,685,609,548,487,434,388,342,342,259,220,167,137,106,99] },
+  tom:  { readings: [1234,1219,1188,1127,1082,1074,952,960,830,769,708,685,655,563,518,464,426,381,320,297,266,220,175,144,76,15] }
+};
+
+function getLevelOffs(readings) {
+  const s = new Set();
+  for (let i = 1; i < readings.length; i++) {
+    if (readings[i-1] - readings[i] < 50) s.add(i);
+  }
+  return s;
+}
+
+let totalLO = 0;
+Object.keys(FLIGHTS).forEach(key => {
+  const lo = getLevelOffs(FLIGHTS[key].readings);
+  FLIGHTS[key].levelOffs = lo;
+  totalLO += lo.size;
+  document.getElementById('lo-' + key).textContent = lo.size;
+});
+document.getElementById('totalLO').textContent = totalLO;
+
+function buildChart(canvasId, readings, levelOffSet) {
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: readings.map((_, i) => `${i*10}s`),
+      datasets: [{
+        data: readings,
+        borderColor: '#e8c547', borderWidth: 2,
+        pointBackgroundColor: readings.map((_, i) => levelOffSet.has(i) ? '#e05555' : 'transparent'),
+        pointBorderColor: readings.map((_, i) => levelOffSet.has(i) ? '#e05555' : 'transparent'),
+        pointRadius: readings.map((_, i) => levelOffSet.has(i) ? 3.5 : 0),
+        pointHoverRadius: 5, tension: 0.2,
+        fill: { target: 'origin', above: 'rgba(232,197,71,0.03)' }
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { ticks: { color:'#444', font:{family:'JetBrains Mono',size:9}, maxTicksLimit:8 }, grid:{color:'#1a1a1a'}, border:{color:'#252525'} },
+        y: { ticks: { color:'#444', font:{family:'JetBrains Mono',size:9}, callback: v => v>=1000?(v/1000).toFixed(1)+'k':v+'m' }, grid:{color:'#1a1a1a'}, border:{color:'#252525'} }
+      },
+      onHover: (event, elements) => {
+        const tip = document.getElementById('tooltip');
+        if (elements.length) {
+          const idx = elements[0].index;
+          const alt = readings[idx];
+          document.getElementById('tt-time').textContent = `Reading ${idx+1} · ${idx*10}s`;
+          document.getElementById('tt-alt').textContent = `${alt.toLocaleString()}m`;
+          document.getElementById('tt-flag').textContent = levelOffSet.has(idx) ? '△ level-off' : '';
+          tip.style.opacity = '1';
+          tip.style.left = (event.native.clientX + 14) + 'px';
+          tip.style.top = (event.native.clientY - 36) + 'px';
+        } else { tip.style.opacity = '0'; }
+      }
+    }
+  });
+}
+
+function buildTable(tableId, readings, levelOffSet) {
+  const table = document.getElementById(tableId);
+  const maxAlt = Math.max(...readings);
+  readings.forEach((alt, i) => {
+    const lo = levelOffSet.has(i);
+    const row = document.createElement('div');
+    row.className = 'r-row' + (lo ? ' lo' : '');
+    row.innerHTML = `
+      <span class="r-num">${String(i+1).padStart(2,'0')}</span>
+      <div class="r-bar-wrap"><div class="r-bar" style="width:${Math.round(alt/maxAlt*100)}%"></div></div>
+      <span class="r-alt">${alt.toLocaleString()}m</span>
+      <span class="${lo?'r-flag':'r-ok'}">${lo?'△ level-off':'↓'}</span>`;
+    table.appendChild(row);
+  });
+}
+
+Object.entries(FLIGHTS).forEach(([key, f]) => {
+  buildChart(key+'Chart', f.readings, f.levelOffs);
+  buildTable('table-'+key, f.readings, f.levelOffs);
+});
+
+function switchFlight(key) {
+  document.querySelectorAll('.flight-item').forEach(t => {
+    t.classList.remove('active');
+    const id = t.querySelector('.fi-id');
+    const dot = t.querySelector('.fi-dot');
+    if(id) id.classList.remove('active-text');
+    if(dot) dot.style.opacity = '0';
+  });
+  document.querySelectorAll('.flight-panel').forEach(p => p.classList.remove('active'));
+  const tab = document.getElementById('tab-'+key);
+  tab.classList.add('active');
+  const id = tab.querySelector('.fi-id');
+  const dot = tab.querySelector('.fi-dot');
+  if(id) id.classList.add('active-text');
+  if(dot) dot.style.opacity = '1';
+  document.getElementById('panel-'+key).classList.add('active');
+}
+</script>
+</body>
+</html>
